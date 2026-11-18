@@ -13,6 +13,7 @@ struct AccountsView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let error = store.storageError { Text(error).foregroundStyle(.red) }
                 Section("Mailboxes") {
                     Button { accountID = nil; group = nil; folder = .inbox; dismiss() } label: { Label("All accounts", systemImage: "tray.full") }
                     ForEach(MailFolder.allCases) { item in
@@ -30,6 +31,10 @@ struct AccountsView: View {
                                     if expanded { collapsedGroups.remove(title) } else { collapsedGroups.insert(title) }
                                 }
                             )) {
+                                MailLabelColorPicker(title: "Group color", selection: Binding(
+                                    get: { store.snapshot.groupColors?[title] },
+                                    set: { store.setGroupColor($0, for: title) }
+                                ))
                                 Button("View this group") { group = title; accountID = nil; folder = .inbox; dismiss() }
                                 ForEach(matches) { account in
                                     HStack {
@@ -37,7 +42,12 @@ struct AccountsView: View {
                                             accountID = account.id; group = nil; folder = .inbox; dismiss()
                                         } label: {
                                             VStack(alignment: .leading, spacing: 4) {
-                                                Text(account.name).font(.body.weight(.medium))
+                                                HStack(spacing: 6) {
+                                                    if let tint = account.labelColor {
+                                                        Capsule().fill(tint.color).frame(width: 3, height: 16).accessibilityHidden(true)
+                                                    }
+                                                    Text(account.name).font(.body.weight(.medium))
+                                                }
                                                 Text(account.address).font(.caption).foregroundStyle(.secondary)
                                                 if account.needsAttention { Label("Demo sync paused", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
                                             }.foregroundStyle(.primary)
@@ -48,7 +58,11 @@ struct AccountsView: View {
                                 }
                             } label: {
                                 HStack {
-                                    Label(title, systemImage: "folder").font(.headline)
+                                    Label {
+                                        Text(title).font(.headline)
+                                    } icon: {
+                                        Image(systemName: "folder.fill").foregroundStyle(store.snapshot.groupColors?[title]?.color ?? .secondary)
+                                    }
                                     Spacer()
                                     Text(members.count.formatted()).font(.subheadline).foregroundStyle(.secondary)
                                         .accessibilityLabel("\(members.count) accounts")
@@ -90,7 +104,12 @@ struct AccountEditor: View {
 
     var body: some View {
         Form {
-            Section("Account label") { TextField("Name", text: $account.name); Text(account.address).foregroundStyle(.secondary) }
+            if let error = store.storageError { Text(error).foregroundStyle(.red) }
+            Section("Account label") {
+                TextField("Name", text: $account.name)
+                Text(account.address).foregroundStyle(.secondary)
+                MailLabelColorPicker(title: "Inbox color", selection: $account.labelColor)
+            }
             Section("Group") { Picker("Group", selection: $account.group) { ForEach(store.snapshot.groups, id: \.self) { Text($0).tag($0) } } }
             Section("Demo sync status") {
                 SyncAccountRow(account: live)
@@ -139,7 +158,7 @@ struct AccountEditor: View {
             .confirmationDialog("Remove this mailbox and its local copies?", isPresented: $confirmRemoval, titleVisibility: .visible) {
                 Button("Remove " + account.address, role: .destructive) { if store.removeSampleAccount(account.id) { dismiss() } }
             }
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Save") { store.updateAccount(account); dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Save") { if store.updateAccount(account) { dismiss() } } } }
     }
 }
 
@@ -285,5 +304,38 @@ struct OfflinePacksView: View {
         store.save()
         result = store.storageError ?? "Saved \(messages.count) messages for offline reading."
         selected.removeAll()
+    }
+}
+
+extension MailLabelColor {
+    var color: Color {
+        switch self {
+        case .red: return .red
+        case .orange: return .orange
+        case .green: return .green
+        case .teal: return .teal
+        case .blue: return .blue
+        case .indigo: return .indigo
+        case .purple: return .purple
+        case .pink: return .pink
+        }
+    }
+}
+
+private struct MailLabelColorPicker: View {
+    let title: String
+    @Binding var selection: MailLabelColor?
+
+    var body: some View {
+        Picker(title, selection: $selection) {
+            Text("Default").tag(nil as MailLabelColor?)
+            ForEach(MailLabelColor.allCases, id: \.self) { option in
+                Label {
+                    Text(option.rawValue.capitalized)
+                } icon: {
+                    Image(systemName: "square.fill").foregroundStyle(option.color)
+                }.tag(Optional(option))
+            }
+        }
     }
 }

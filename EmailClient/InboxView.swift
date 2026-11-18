@@ -200,8 +200,11 @@ struct MailRow: View {
                 Text(mail.body.isEmpty ? "No visible message content" : mail.body.replacingOccurrences(of: "\n", with: " ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                 if store.snapshot.preferences.mailboxLabel != "Hidden", let account = store.account(mail.accountID) {
                     Text(store.snapshot.preferences.mailboxLabel == "Name" ? account.name : account.address)
-                        .font(.caption2.weight(.medium)).foregroundStyle(.blue)
-                        .padding(.horizontal, 8).padding(.vertical, 3).background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                        .font(.caption2.weight(.medium)).foregroundStyle(.primary)
+                        .padding(.horizontal, 8).padding(.vertical, 3).background((account.labelColor?.color ?? .blue).opacity(0.14), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(alignment: .leading) {
+                            if let tint = account.labelColor { Capsule().fill(tint.color).frame(width: 3).accessibilityHidden(true) }
+                        }
                 }
             }
         }.padding(.vertical, 10)

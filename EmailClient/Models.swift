@@ -1,5 +1,9 @@
 import Foundation
 
+enum MailLabelColor: String, Codable, CaseIterable {
+    case red, orange, green, teal, blue, indigo, purple, pink
+}
+
 struct MailAccount: Codable, Identifiable, Hashable {
     var id: String
     var name: String
@@ -16,6 +20,7 @@ struct MailAccount: Codable, Identifiable, Hashable {
     var reminderMinutes: Int?
     var reminderEnabledAt: Date?
 
+    var labelColor: MailLabelColor?
     var blockedSenders: [String]?
     var sendingAddresses: [String] { [address] + aliases }
     var issue: SampleSyncIssue? { syncIssue ?? (needsAttention ? .signIn : nil) }
@@ -117,6 +122,7 @@ struct MailSnapshot: Codable {
     var version = 1
     var accounts: [MailAccount]
     var groups: [String]
+    var groupColors: [String: MailLabelColor]?
     var messages: [MailMessage]
     var favoriteSenders: [String: [String]]?
     var views: [SavedView]?

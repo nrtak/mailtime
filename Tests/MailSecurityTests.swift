@@ -158,4 +158,20 @@ final class MailSecurityTests: XCTestCase {
         XCTAssertTrue(store.checking.isEmpty)
         XCTAssertTrue(store.snapshot.accounts.allSatisfy { $0.lastAttempt != nil })
     }
+
+    @MainActor func testIndependentGroupAndInboxColorsSurviveRestart() throws {
+        let directory = try temporaryDirectory()
+        let store = MailStore(directory: directory)
+        var account = try XCTUnwrap(store.account("base"))
+        store.setGroupColor(.green, for: account.group)
+        account.labelColor = .purple
+        XCTAssertTrue(store.updateAccount(account))
+        let restored = MailStore(directory: directory)
+        XCTAssertEqual(restored.snapshot.groupColors?[account.group], .green)
+        XCTAssertEqual(restored.account(account.id)?.labelColor, .purple)
+        restored.setGroupColor(nil, for: account.group)
+        let cleared = MailStore(directory: directory)
+        XCTAssertNil(cleared.snapshot.groupColors?[account.group])
+        XCTAssertEqual(cleared.account(account.id)?.labelColor, .purple)
+    }
 }

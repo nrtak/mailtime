@@ -214,11 +214,25 @@ final class MailStore: ObservableObject {
         return true
     }
 
-    func updateAccount(_ account: MailAccount) {
-        guard let index = snapshot.accounts.firstIndex(where: { $0.id == account.id }), snapshot.groups.contains(account.group) else { return }
-        snapshot.accounts[index].name = account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? account.address : account.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        snapshot.accounts[index].group = account.group
-        save()
+    func setGroupColor(_ color: MailLabelColor?, for group: String) {
+        guard snapshot.groups.contains(group) else { return }
+        var next = snapshot
+        var colors = next.groupColors ?? [:]
+        colors[group] = color
+        next.groupColors = colors
+        _ = commit(next)
+    }
+
+    @discardableResult
+    func updateAccount(_ account: MailAccount) -> Bool {
+        guard let index = snapshot.accounts.firstIndex(where: { $0.id == account.id }),
+              snapshot.groups.contains(account.group) else { return false }
+        var next = snapshot
+        let name = account.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        next.accounts[index].name = name.isEmpty ? account.address : name
+        next.accounts[index].group = account.group
+        next.accounts[index].labelColor = account.labelColor
+        return commit(next)
     }
 
     func sendDemo() -> Bool {

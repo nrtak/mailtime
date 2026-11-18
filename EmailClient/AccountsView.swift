@@ -3,18 +3,38 @@ import SwiftUI
 struct AccountsView: View {
     @EnvironmentObject private var store: MailStore
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var outlook: OutlookSignIn
     @Binding var folder: MailFolder
     @Binding var accountID: String?
     @Binding var group: String?
     @State private var newGroup = ""
     @State private var query = ""
-    @State private var collapsedGroups = Set<String>()
+    private var collapsedGroups: Set<String> { store.snapshot.collapsedGroups ?? [] }
 
     var body: some View {
         NavigationStack {
             List {
                 if let error = store.storageError { Text(error).foregroundStyle(.red) }
+                Section {
+                    NavigationLink("Outlook inboxes") { OutlookIdentityView() }
+                }
+                let pins = store.snapshot.accounts.filter { $0.pinned == true && (query.isEmpty || ($0.address + $0.name).localizedCaseInsensitiveContains(query)) }
+                let livePins = outlook.saved.filter { $0.pinned && (query.isEmpty || $0.address.localizedCaseInsensitiveContains(query)) }
+                if !pins.isEmpty || !livePins.isEmpty {
+                    Section("Pinned inboxes") {
+                        ForEach(livePins) { account in
+                            NavigationLink { OutlookReader(item: account) } label: { Label(account.address, systemImage: "tray") }
+                        }
+                        ForEach(pins) { account in
+                            Button { accountID = account.id; group = nil; folder = .inbox; dismiss() } label: {
+                                VStack(alignment: .leading) { Text(account.name); Text(account.address).font(.caption) }
+                            }
+                        }
+                    }
+                }
                 Section("Mailboxes") {
+                    NavigationLink { DraftList(accountID: accountID, group: group) } label: { Label("Drafts", systemImage: "doc.text") }
+
                     Button { accountID = nil; group = nil; folder = .inbox; dismiss() } label: { Label("All accounts", systemImage: "tray.full") }
                     ForEach(MailFolder.allCases) { item in
                         Button { folder = item; dismiss() } label: { Label(item == .sent ? "Demo Sent" : item.title, systemImage: item.symbol) }
@@ -28,7 +48,11 @@ struct AccountsView: View {
                             DisclosureGroup(isExpanded: Binding(
                                 get: { !query.isEmpty || !collapsedGroups.contains(title) },
                                 set: { expanded in
-                                    if expanded { collapsedGroups.remove(title) } else { collapsedGroups.insert(title) }
+                                    store.editMailbox { state in
+                                        var collapsed = state.collapsedGroups ?? []
+                                        if expanded { collapsed.remove(title) } else { collapsed.insert(title) }
+                                        state.collapsedGroups = collapsed
+                                    }
                                 }
                             )) {
                                 MailLabelColorPicker(title: "Group color", selection: Binding(
@@ -70,6 +94,9 @@ struct AccountsView: View {
                             }
                         }
                     }
+                    .onMove { offsets, destination in
+                        store.editMailbox { $0.groups.move(fromOffsets: offsets, toOffset: destination) }
+                    }.moveDisabled(!query.isEmpty)
                 } header: {
                     Text("Account groups")
                         .font(.title2.bold())
@@ -85,11 +112,11 @@ struct AccountsView: View {
                     NavigationLink("Follow-ups") { ActionQueueView() }
                     NavigationLink("Offline copies") { OfflinePacksView() }
                 }
-                Section { Text("These mailboxes use sample messages. The optional Outlook.com identity check is in Settings under Accounts & groups.").font(.caption).foregroundStyle(.secondary) }
+                Section { Text("Account groups contain sample mailboxes. Outlook inboxes contains your connected personal Microsoft accounts.").font(.caption).foregroundStyle(.secondary) }
             }
             .searchable(text: $query, prompt: "Find an account")
             .navigationTitle("Accounts")
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { EditButton() }; ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
 }
@@ -106,11 +133,24 @@ struct AccountEditor: View {
         Form {
             if let error = store.storageError { Text(error).foregroundStyle(.red) }
             Section("Account label") {
+                Toggle("Pin inbox", isOn: Binding(get: { account.pinned == true }, set: { account.pinned = $0 }))
                 TextField("Name", text: $account.name)
                 Text(account.address).foregroundStyle(.secondary)
                 MailLabelColorPicker(title: "Inbox color", selection: $account.labelColor)
             }
             Section("Group") { Picker("Group", selection: $account.group) { ForEach(store.snapshot.groups, id: \.self) { Text($0).tag($0) } } }
+            Section("Sending signatures") {
+                ForEach(account.sendingAddresses, id: \.self) { address in
+                    VStack(alignment: .leading) {
+                        Text(address).font(.caption)
+                        TextField("Signature", text: Binding(get: { account.signatures?[address] ?? "" }, set: { value in
+                            var signatures = account.signatures ?? [:]
+                            signatures[address] = value.isEmpty ? nil : value
+                            account.signatures = signatures
+                        }), axis: .vertical)
+                    }
+                }
+            }
             Section("Demo sync status") {
                 SyncAccountRow(account: live)
                 Button("Simulate expired sign-in") { store.simulateInterruption(account.id, issue: .signIn) }
@@ -204,7 +244,9 @@ struct SyncStatusView: View {
             ForEach(store.snapshot.accounts.filter { ids.contains($0.id) }) { account in
                 VStack(alignment: .leading, spacing: 6) {
                     SyncAccountRow(account: account)
-                    TimelineView(.periodic(from: .now, by: 60)) { tick in Text(account.sampleStatus(at: tick.date)) }
+                    TimelineView(.explicit([Date.distantPast] + [account.staleAt].compactMap { $0 })) { _ in
+                        Text(account.sampleStatus(at: Date()))
+                    }
                     Text("Last attempt: \(account.lastAttempt?.formatted() ?? "Unknown")")
                 }.font(.caption)
             }
@@ -225,6 +267,7 @@ struct ActionQueueView: View {
                             VStack(alignment: .leading) {
                                 Text(mail.subject)
                                 Text(store.account(mail.accountID)?.address ?? "").font(.caption)
+                                if mail.watchForReply == true { Text(store.followUpStatus(mail, at: Date())).font(.caption) }
                                 if let date = mail.reminder { Text(date.formatted()).font(.caption) }
                             }
                         }
@@ -249,6 +292,7 @@ struct OfflinePacksView: View {
 
     var body: some View {
         Form {
+            if let error = store.storageError { Text(error).foregroundStyle(.red) }
             Section("Create a local copy") {
                 Picker("Account", selection: $accountID) {
                     Text("All accounts").tag("")
@@ -283,7 +327,7 @@ struct OfflinePacksView: View {
                         VStack(alignment: .leading) { Text(pack.name); Text("\(pack.payload.count) bytes · \(pack.date.formatted())").font(.caption) }
                     }
                 }.onDelete { offsets in
-                    store.snapshot.packs?.remove(atOffsets: offsets); store.save()
+                    store.editMailbox { $0.packs?.remove(atOffsets: offsets) }
                 }
             }
         }.navigationTitle("Offline copies")
@@ -300,8 +344,7 @@ struct OfflinePacksView: View {
         guard !messages.isEmpty, let data = try? JSONEncoder().encode(messages) else { return }
         guard data.count <= limit * 1024 else { result = "Selection exceeds the pack limit. Choose fewer messages or increase the limit."; return }
         let pack = OfflinePack(name: "\(store.account(accountID)?.name ?? "All accounts") · \(folder.title)", payload: data)
-        store.snapshot.packs = (store.snapshot.packs ?? []) + [pack]
-        store.save()
+        guard store.editMailbox({ $0.packs = ($0.packs ?? []) + [pack] }) else { return }
         result = store.storageError ?? "Saved \(messages.count) messages for offline reading."
         selected.removeAll()
     }

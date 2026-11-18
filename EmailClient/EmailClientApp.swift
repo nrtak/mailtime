@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct EmailClientApp: App {
     @StateObject private var store = MailStore()
+    @StateObject private var outlook = OutlookSignIn()
     @StateObject private var lock = MailAppLock()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -20,6 +21,7 @@ struct EmailClientApp: App {
                     }
                 } else { InboxView() }
             }
+                .environmentObject(outlook)
                 .environmentObject(lock)
                 .environmentObject(store)
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
@@ -29,7 +31,7 @@ struct EmailClientApp: App {
                     lock.uncoverWindows()
                 }
                 .onChange(of: scenePhase, initial: true) { _, phase in
-                    if phase == .active { lock.activate() }
+                    if phase == .active { lock.activate(); outlook.reload() }
                     if phase == .background {
                         lock.background()
                         if !store.loadFailed { store.flushDraft() }

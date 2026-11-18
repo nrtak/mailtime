@@ -1,6 +1,11 @@
 name: TestFlight
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Sign and upload this build to TestFlight
+        type: boolean
+        default: false
   push:
     branches: [main]
 permissions:
@@ -10,8 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  upload:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[testflight] '))
+  test:
     runs-on: xcode-27
     timeout-minutes: 50
     steps:
@@ -34,9 +38,22 @@ jobs:
           print(next((d for d in phones if d["name"] == "iPhone 16"), phones[0])["udid"])')
           xcodebuild test -project EmailClient.xcodeproj -scheme EmailClient \
             -destination "platform=iOS Simulator,id=$device" CODE_SIGNING_ALLOWED=NO
+  upload:
+    needs: test
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.publish) ||
+       (github.event_name == 'push' && startsWith(github.event.head_commit.message, '[testflight] ')))
+    runs-on: xcode-27
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
       - name: Sign and upload to App Store Connect
         shell: bash
         env:
+          MICROSOFT_CLIENT_ID: ${{ vars.MAIL_MICROSOFT_CLIENT_ID }}
           TEAM_ID: ${{ vars.APPLE_TEAM_ID || 'R3233N87DC' }}
           KEY_ID: ${{ secrets.ASC_KEY_ID || secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || secrets.APP_STORE_CONNECT_ISSUER_ID }}
@@ -172,7 +189,7 @@ jobs:
           fi
           archive="$RUNNER_TEMP/EmailClient.xcarchive"
           xcodebuild archive -project EmailClient.xcodeproj -scheme EmailClient -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath "$archive" "${archive_signing[@]}" \
+            -destination 'generic/platform=iOS' -archivePath "$archive" "${archive_signing[@]}" "MAIL_MICROSOFT_CLIENT_ID=$MICROSOFT_CLIENT_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
           options="$signing_dir/export.plist"

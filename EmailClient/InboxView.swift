@@ -2,33 +2,69 @@ import SwiftUI
 
 struct InboxView: View {
     @EnvironmentObject private var store: MailStore
+    @EnvironmentObject private var outlook: OutlookSignIn
     @State private var folder: MailFolder = .inbox
     @State private var accountID: String?
     @State private var group: String?
     @State private var priority = true
     @State private var query = ""
     @State private var statusTime = Date()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var accountsOpen = false
     @State private var settingsOpen = false
     @State private var composeOpen = false
 
+    @State private var filtersOpen = false
+    @State private var senderFilter = ""
+    @State private var afterDate: Date?
+    @State private var snoozedOnly = false
+    @State private var moveTarget: MailMessage?
+    @State private var snoozeTarget: MailMessage?
     @State private var attachmentsOnly = false
     @State private var favoritesOnly = false
     @State private var namingView = false
     @State private var viewName = ""
 
     private var scope: String { accountID.flatMap { store.account($0)?.name } ?? group ?? "All accounts" }
-    private var visible: [MailMessage] { store.messages(folder: folder, accountID: accountID, group: group, priority: priority, query: query).filter { (!attachmentsOnly || $0.attachment != nil) && (!favoritesOnly || store.isFavorite($0)) } }
+    private var visible: [MailMessage] {
+        store.messages(folder: folder, accountID: accountID, group: group,
+                       priority: priority && query.isEmpty && senderFilter.isEmpty && afterDate == nil && !snoozedOnly, query: query, at: statusTime).filter { mail in
+            let sleeping = folder == .inbox && (mail.snoozedUntil ?? .distantPast) > statusTime
+            return (folder != .inbox || (snoozedOnly ? sleeping : !sleeping || !query.isEmpty)) &&
+                (!attachmentsOnly || mail.attachment != nil) && (!favoritesOnly || store.isFavorite(mail)) &&
+                (afterDate == nil || mail.date >= (afterDate ?? .distantPast)) &&
+                (senderFilter.isEmpty || mail.senderName.localizedCaseInsensitiveContains(senderFilter) ||
+                 mail.senderAddress.localizedCaseInsensitiveContains(senderFilter))
+        }
+    }
     private var scoped: [MailAccount] {
         store.snapshot.accounts.filter { (accountID == nil || $0.id == accountID) && (group == nil || $0.group == group) }
     }
-    private var attention: [MailAccount] { scoped.filter { $0.issue != nil } }
     private var filtering: Bool {
-        !query.isEmpty || attachmentsOnly || favoritesOnly || store.snapshot.preferences.unreadOnly
+        !query.isEmpty || !senderFilter.isEmpty || afterDate != nil || snoozedOnly || attachmentsOnly || favoritesOnly || store.snapshot.preferences.unreadOnly
+    }
+
+    @ViewBuilder private func swipeButton(_ action: MailSwipe, mail: MailMessage) -> some View {
+        switch action {
+        case .read:
+            Button(mail.unread ? "Read" : "Unread", systemImage: "envelope") { store.toggleRead(mail) }
+        case .archive where mail.folder != .archive && mail.folder != .junk:
+            Button("Archive", systemImage: "archivebox") { store.move(mail.id, to: .archive) }
+        case .snooze where mail.folder == .inbox:
+            Button("Snooze", systemImage: "clock") { snoozeTarget = mail }
+        default:
+            Button("Move", systemImage: "folder") { moveTarget = mail }
+        }
     }
 
     var body: some View {
-        NavigationStack {
+        let messages = visible
+        let accounts = scoped
+        let attention = accounts.filter { $0.issue != nil }
+        let wakeDates = folder == .inbox ? store.snapshot.messages.compactMap(\.snoozedUntil) : []
+        let outlookDeadlines = outlook.saved.compactMap { $0.lastCheck?.addingTimeInterval(3600) }
+        let deadline = (accounts.compactMap(\.staleAt) + wakeDates + outlookDeadlines).filter { $0 > statusTime }.min()
+        return NavigationStack {
             List {
                 Section {
                     HStack(spacing: 6) {
@@ -39,7 +75,17 @@ struct InboxView: View {
                     if let error = store.storageError {
                         Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
                     }
-                    let stale = scoped.filter { $0.issue == nil && $0.sampleStatus(at: statusTime) != "Current" }
+                    if let issue = outlook.saved.first(where: { $0.issue != nil }) {
+                        NavigationLink { OutlookIdentityView() } label: {
+                            Label("Outlook sync needs attention · " + issue.address, systemImage: "exclamationmark.triangle")
+                        }
+                    }
+                    else if let staleOutlook = outlook.saved.first(where: { $0.lastCheck.map { statusTime.timeIntervalSince($0) >= 3600 } == true }) {
+                        NavigationLink { OutlookReader(item: staleOutlook) } label: {
+                            Label("Outlook hasn’t been checked recently · " + staleOutlook.address, systemImage: "clock")
+                        }
+                    }
+                    let stale = accounts.filter { $0.issue == nil && $0.sampleStatus(at: statusTime) != "Current" }
                     if !attention.isEmpty || !stale.isEmpty {
                         NavigationLink {
                             SyncStatusView(ids: (attention + stale).map(\.id))
@@ -50,13 +96,18 @@ struct InboxView: View {
                                 .font(.subheadline)
                         }
                     }
-                    if folder == .inbox {
+                    if filtering {
+                        Button { filtersOpen = true } label: {
+                            Label("Search filters · " + scope + " · " + folder.title, systemImage: "line.3.horizontal.decrease")
+                        }
+                    }
+                    if folder == .inbox && query.isEmpty && senderFilter.isEmpty && afterDate == nil && !snoozedOnly {
                         Picker("Inbox", selection: $priority) {
                             Text("Priority").tag(true)
                             Text("All").tag(false)
                         }.pickerStyle(.segmented).listRowBackground(Color.clear).listRowSeparator(.hidden)
                     }
-                    if visible.isEmpty {
+                    if messages.isEmpty {
                         ContentUnavailableView(filtering ? "No matching local messages" : "No downloaded messages in this view",
                             systemImage: filtering ? "magnifyingglass" : "tray",
                             description: Text(!attention.isEmpty ? "Some mailboxes still need attention." : filtering ? "Change or clear your filters." : "Pull to check the selected sample mailboxes."))
@@ -64,31 +115,46 @@ struct InboxView: View {
                     }
                 }
                 Section {
-                    ForEach(visible) { mail in
+                    ForEach(messages) { mail in
                         NavigationLink(value: mail.id) { MailRow(mail: mail) }
-                            .swipeActions(edge: .trailing) {
-                                if folder == .junk {
-                                    Button("Restore", systemImage: "tray.and.arrow.up") { store.move(mail.id, to: .inbox) }.tint(.green)
-                                } else {
-                                    Button("Junk", systemImage: "exclamationmark.shield") { store.move(mail.id, to: .junk) }.tint(.orange)
-                                    Button("Archive", systemImage: "archivebox") { store.move(mail.id, to: .archive) }.tint(.blue)
-                                }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                swipeButton(store.snapshot.preferences.trailingSwipe ?? .archive, mail: mail)
                             }
                             .swipeActions(edge: .leading) {
-                                Button(mail.unread ? "Read" : "Unread", systemImage: mail.unread ? "envelope.open" : "envelope.badge") { store.update(mail.id) { $0.unread.toggle() } }.tint(.indigo)
+                                swipeButton(store.snapshot.preferences.leadingSwipe ?? .read, mail: mail)
                             }
                     }
                 }
             }
             .listStyle(.plain)
-            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { statusTime = $0 }
+            .onChange(of: store.snapshot.accounts.map(\.id), initial: true) { _, ids in
+                if let selected = accountID, !ids.contains(selected) {
+                    accountID = nil
+                    group = nil
+                }
+            }
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                if phase == .active { statusTime = Date() }
+            }
+            .task(id: scenePhase == .active ? deadline : nil) {
+                guard scenePhase == .active, let deadline else { return }
+                let delay = max(0, deadline.timeIntervalSinceNow)
+                do { try await Task.sleep(for: .seconds(delay), tolerance: .seconds(1)) } catch { return }
+                statusTime = Date()
+            }
             .refreshable {
                 let ids = scoped.map(\.id)
                 await store.refreshSamples(ids)
             }
             .navigationTitle(folder == .inbox ? "Inbox" : folder == .sent ? "Demo Sent" : folder.title)
-            .navigationDestination(for: String.self) { MessageView(messageID: $0) }
+            .navigationDestination(for: String.self) { id in
+                MessageView(messageID: id)
+            }
             .searchable(text: $query, prompt: "Search local mail")
+            .searchSuggestions {
+                Button("Filter by sender or account") { filtersOpen = true }
+                Button("With attachments") { attachmentsOnly = true }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { accountsOpen = true } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Accounts and mailboxes")
@@ -104,38 +170,44 @@ struct InboxView: View {
                 }
                 ToolbarItem(placement: .bottomBar) {
                     Menu {
-                        Toggle("Unread only", isOn: $store.snapshot.preferences.unreadOnly).onChange(of: store.snapshot.preferences.unreadOnly) { _, _ in store.save() }
+                        Button("Search filters") { filtersOpen = true }
+                        Toggle("Unread only", isOn: store.preference(\.unreadOnly))
                         Toggle("Attachments only", isOn: $attachmentsOnly)
                         Toggle("Favorite senders only", isOn: $favoritesOnly)
                         Button("Save this view") { viewName = ""; namingView = true }
                         ForEach(store.snapshot.views ?? []) { saved in
                             Button(saved.name) {
+                                guard store.editMailbox({ $0.preferences.unreadOnly = saved.unread }) else { return }
                                 folder = saved.folder; accountID = saved.accountID; group = saved.group
                                 priority = saved.priority; query = saved.query; attachmentsOnly = saved.attachments
+                                senderFilter = saved.senderFilter ?? ""; afterDate = saved.afterDate; snoozedOnly = saved.snoozedOnly ?? false
                                 favoritesOnly = saved.favoritesOnly ?? false
-                                store.snapshot.preferences.unreadOnly = saved.unread; store.save()
                             }
                         }
                         if let views = store.snapshot.views, !views.isEmpty {
                             Menu("Remove saved view") {
                                 ForEach(views) { saved in
                                     Button(saved.name, role: .destructive) {
-                                        store.snapshot.views?.removeAll { $0.id == saved.id }
-                                        store.save()
+                                        store.editMailbox { $0.views?.removeAll { $0.id == saved.id } }
                                     }
                                 }
                             }
                         }
-                        Button("Clear filters") { favoritesOnly = false; attachmentsOnly = false; query = ""; store.snapshot.preferences.unreadOnly = false; store.save() }
-                    } label: { Image(systemName: (favoritesOnly || attachmentsOnly || store.snapshot.preferences.unreadOnly) ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }.accessibilityLabel("Filter messages")
+                        Button("Clear filters") { guard store.editMailbox({ $0.preferences.unreadOnly = false }) else { return }; favoritesOnly = false; attachmentsOnly = false; senderFilter = ""; afterDate = nil; snoozedOnly = false; query = "" }
+                    } label: { Image(systemName: filtering ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") }.accessibilityLabel("Filter messages")
                 }
                 ToolbarItem(placement: .bottomBar) {
                     Button {
-                        if store.snapshot.draft.isEmpty, let accountID, let account = store.account(accountID) {
-                            store.snapshot.draft = MailDraft(accountID: account.id, from: account.address)
+                        composeOpen = store.prepareCompose(accountID: accountID, group: group)
+                    } label: { Image(systemName: "square.and.pencil") }
+                    .contextMenu {
+                        if !store.snapshot.draft.isEmpty { Button("Resume current draft") { composeOpen = true } }
+                        ForEach(Array((store.snapshot.parkedDrafts ?? []).enumerated()), id: \.offset) { i, draft in
+                            Button((draft.subject.isEmpty ? "Draft" : draft.subject) + " · " + draft.from) {
+                                composeOpen = store.resumeDraft(at: i)
+                            }
                         }
-                        composeOpen = true
-                    } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("Compose")
+                    }.accessibilityLabel("Compose")
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -148,6 +220,39 @@ struct InboxView: View {
                     }.padding().mailGlass().padding(.horizontal).padding(.bottom, 4)
                 }
             }
+            .sheet(item: $snoozeTarget) { mail in SnoozeEditor(mail: mail) }
+            .sheet(item: $moveTarget) { mail in
+                NavigationStack {
+                    List(MailFolder.allCases.filter { $0 != .sent && $0 != mail.folder }) { destination in
+                        Button(destination.title) { if store.move(mail.id, to: destination) { moveTarget = nil } }
+                    }.navigationTitle("Move message")
+                    .safeAreaInset(edge: .bottom) { if let error = store.storageError { Text(error) } }
+                }.presentationDetents([.medium])
+            }
+            .sheet(isPresented: $filtersOpen) {
+                NavigationStack {
+                    Form {
+                        TextField("From name or email address", text: $senderFilter).textInputAutocapitalization(.never)
+                        Picker("Search in", selection: Binding(get: {
+                            accountID.map { "account-" + $0 } ?? group.map { "group-" + $0 } ?? ""
+                        }, set: { selection in
+                            accountID = selection.hasPrefix("account-") ? String(selection.dropFirst(8)) : nil
+                            group = selection.hasPrefix("group-") ? String(selection.dropFirst(6)) : nil
+                        })) {
+                            Text("All accounts").tag("")
+                            ForEach(store.snapshot.groups, id: \.self) { Text($0).tag("group-" + $0) }
+                            ForEach(store.snapshot.accounts) { Text($0.address).tag("account-" + $0.id) }
+                        }
+                        Toggle("Has attachment", isOn: $attachmentsOnly)
+                        Toggle("Limit by date", isOn: Binding(get: { afterDate != nil }, set: { afterDate = $0 ? Calendar.current.startOfDay(for: Date()) : nil }))
+                        if let date = afterDate {
+                            DatePicker("On or after", selection: Binding(get: { date }, set: { afterDate = Calendar.current.startOfDay(for: $0) }), displayedComponents: .date)
+                        }
+                        if folder == .inbox { Toggle("Snoozed only", isOn: $snoozedOnly) }
+                    }.navigationTitle("Search filters")
+                    .toolbar { Button("Done") { filtersOpen = false } }
+                }
+            }
             .sheet(isPresented: $accountsOpen) {
                 AccountsView(folder: $folder, accountID: $accountID, group: $group)
             }
@@ -158,8 +263,8 @@ struct InboxView: View {
                     guard !name.isEmpty else { return }
                     var views = store.snapshot.views ?? []
                     views.removeAll { $0.name.caseInsensitiveCompare(name) == .orderedSame }
-                    views.append(SavedView(name: name, folder: folder, accountID: accountID, group: group, priority: priority, unread: store.snapshot.preferences.unreadOnly, attachments: attachmentsOnly, favoritesOnly: favoritesOnly, query: query))
-                    store.snapshot.views = views; store.save()
+                    views.append(SavedView(name: name, folder: folder, accountID: accountID, group: group, priority: priority, unread: store.snapshot.preferences.unreadOnly, attachments: attachmentsOnly, snoozedOnly: snoozedOnly, senderFilter: senderFilter, afterDate: afterDate, favoritesOnly: favoritesOnly, query: query))
+                    store.editMailbox { $0.views = views }
                 }
                 Button("Cancel", role: .cancel) {}
             }

@@ -20,6 +20,9 @@ struct MailAccount: Codable, Identifiable, Hashable {
     var reminderMinutes: Int?
     var reminderEnabledAt: Date?
 
+    var prioritySenders: [String]?
+    var pinned: Bool?
+    var signatures: [String: String]?
     var labelColor: MailLabelColor?
     var blockedSenders: [String]?
     var sendingAddresses: [String] { [address] + aliases }
@@ -70,10 +73,20 @@ struct MailMessage: Codable, Identifiable, Hashable {
     var attachment: DemoAttachment?
     var action: String?
     var reminder: Date?
+    var reminderNotificationID: String?
+    var watchForReply: Bool?
+    var snoozedUntil: Date?
+    var inReplyToID: String?
     var junkReason: String? = nil
 }
 
 extension MailMessage {
+    func isReply(to sent: MailMessage) -> Bool {
+        guard accountID == sent.accountID, inReplyToID == sent.id, folder != .junk,
+              outboundRecipients == nil, date >= sent.date else { return false }
+        return sent.outboundRecipients?.contains { $0.caseInsensitiveCompare(senderAddress) == .orderedSame } == true
+    }
+
     var outboundRecipients: [String]? {
         if let sentRecipients { return sentRecipients }
         guard folder == .sent else { return nil }
@@ -95,7 +108,7 @@ extension MailMessage {
             ?? (identity == nil && account.aliases.isEmpty ? account.address : "")
         return MailDraft(accountID: account.id, from: from, recipient: replyAddresses(all: all).joined(separator: ", "),
                          subject: subject.lowercased().hasPrefix("re:") ? subject : "Re: " + subject,
-                         originalAccount: account.id, replyAll: all)
+                         originalAccount: account.id, replyParentID: id, replyAll: all)
     }
 }
 
@@ -106,14 +119,29 @@ struct MailDraft: Codable, Equatable {
     var subject: String = ""
     var body: String = ""
     var originalAccount: String?
+    var replyParentID: String?
+    var signature: String?
+    var composeGroup: String?
     var replyAll: Bool?
     var attachment: DemoAttachment?
     var isEmpty: Bool { recipient.isEmpty && subject.isEmpty && body.isEmpty && attachment == nil }
 }
 
+enum MailSwipe: String, Codable, CaseIterable {
+    case read = "Read or unread", archive = "Archive", snooze = "Snooze", move = "Move"
+}
+
+struct MailTemplate: Codable, Identifiable {
+    var id = UUID()
+    var name: String
+    var body: String
+}
+
 struct MailPreferences: Codable {
     var showSenderAddress = true
     var mailboxLabel = "Address"
+    var leadingSwipe: MailSwipe?
+    var trailingSwipe: MailSwipe?
     var appearance = "System"
     var unreadOnly = false
 }
@@ -122,8 +150,11 @@ struct MailSnapshot: Codable {
     var version = 1
     var accounts: [MailAccount]
     var groups: [String]
+    var parkedDrafts: [MailDraft]?
+    var collapsedGroups: Set<String>?
     var groupColors: [String: MailLabelColor]?
     var messages: [MailMessage]
+    var templates: [MailTemplate]?
     var favoriteSenders: [String: [String]]?
     var views: [SavedView]?
     var packs: [OfflinePack]?
@@ -182,6 +213,9 @@ struct SavedView: Codable, Identifiable {
     var priority: Bool
     var unread: Bool
     var attachments: Bool
+    var snoozedOnly: Bool?
+    var senderFilter: String?
+    var afterDate: Date?
     var favoritesOnly: Bool?
     var query: String
 }
@@ -197,15 +231,28 @@ struct OfflinePack: Codable, Identifiable {
 }
 
 extension MailDraft {
+    func detachingReply(from removedAccount: String) -> Self {
+        guard originalAccount == removedAccount else { return self }
+        var preserved = self
+        preserved.originalAccount = nil
+        preserved.replyParentID = nil
+        return preserved
+    }
+
     var recipients: [String] {
         recipient.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }
 
 extension MailAccount {
+    var staleAt: Date? {
+        guard issue == nil else { return nil }
+        return lastSuccess?.addingTimeInterval(3600)
+    }
+
     func sampleStatus(at time: Date) -> String {
         if let issue { return issue.label }
-        guard let lastSuccess, time.timeIntervalSince(lastSuccess) < 3600 else { return "Not checked recently" }
+        guard let staleAt, time < staleAt else { return "Not checked recently" }
         return "Current"
     }
 }

@@ -49,8 +49,44 @@ jobs:
           signing_dir=$(mktemp -d "$RUNNER_TEMP/asc.XXXXXX")
           trap 'rm -rf "$signing_dir"' EXIT
           key="$signing_dir/AuthKey.p8"
-          printf '%s\n' "$ASC_PRIVATE_KEY" > "$key"
+          python3 - "$key" <<'PY'
+          import base64
+          import binascii
+          import os
+          import sys
+          from pathlib import Path
+
+          value = os.environ["ASC_PRIVATE_KEY"].strip().lstrip("\ufeff").strip()
+          if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+              value = value[1:-1].strip()
+          value = value.replace("\\r\\n", "\n").replace("\\n", "\n").strip()
+          begin, end = "-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"
+          if value.lower().endswith(".p8"):
+              sys.exit("The private-key secret contains a filename. Save the text inside the Apple .p8 file as its value.")
+          if not value.startswith(begin):
+              try:
+                  decoded = base64.b64decode("".join(value.split()), validate=True).decode("ascii").strip()
+                  if decoded.startswith(begin):
+                      value = decoded
+              except (ValueError, binascii.Error):
+                  pass
+          if not (value.startswith(begin) and value.endswith(end)):
+              sys.exit("The private-key secret is missing its Apple PEM header or footer. Copy both boundary lines and all the text between them.")
+          payload = "".join(value[len(begin):-len(end)].split())
+          if not payload:
+              sys.exit("The private-key secret has an empty key body.")
+          try:
+              base64.b64decode(payload, validate=True)
+          except (ValueError, binascii.Error):
+              sys.exit("The private-key secret contains an incomplete or invalid base64 key body.")
+          lines = [payload[i:i + 64] for i in range(0, len(payload), 64)]
+          Path(sys.argv[1]).write_text("\n".join([begin, *lines, end, ""]), encoding="ascii")
+          PY
           unset ASC_PRIVATE_KEY
+          if ! openssl pkey -in "$key" -pubout -out /dev/null </dev/null >/dev/null 2>&1; then
+            echo "::error::The private-key secret does not contain a usable Apple private key. Recopy the complete .p8 contents."
+            exit 1
+          fi
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key"
                 -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID")
           archive="$RUNNER_TEMP/EmailClient.xcarchive"

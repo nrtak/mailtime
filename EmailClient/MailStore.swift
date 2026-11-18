@@ -9,7 +9,9 @@ final class MailStore: ObservableObject {
     @Published private(set) var checking = Set<String>()
     @Published private(set) var reminderErrors: [String: String] = [:]
     private var reminderWrites: [String: Task<Void, Never>] = [:]
-    private var loadFailed = false
+    @Published private(set) var loadFailed = false
+    private var pendingDraftSave: Task<Void, Never>?
+    private var savedDraft: MailDraft?
     private var undoMessage: MailMessage?
     var canUndo: Bool { undoMessage != nil }
     private let fileURL: URL
@@ -17,17 +19,26 @@ final class MailStore: ObservableObject {
     init(directory: URL = URL.applicationSupportDirectory.appending(path: "DemoMailbox", directoryHint: .isDirectory)) {
         fileURL = directory.appending(path: "mailbox.json")
         snapshot = .sample()
+        loadMailbox()
+    }
+
+    func loadMailbox() {
+        let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
             var excluded = directory
             var values = URLResourceValues()
             values.isExcludedFromBackup = true
             try excluded.setResourceValues(values)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
+            let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            if names.contains(fileURL.lastPathComponent) || loadFailed {
                 let saved = try MailboxCache(indexURL: fileURL).load()
                 guard saved.version == 1 else { throw CocoaError(.coderReadCorrupt) }
                 snapshot = saved
+                savedDraft = saved.draft
             }
+            loadFailed = false
+            storageError = nil
         } catch {
             loadFailed = true
             storageError = "Saved demo data could not be loaded. Changes will not overwrite it. \(error.localizedDescription)"
@@ -41,12 +52,45 @@ final class MailStore: ObservableObject {
         guard !loadFailed else { return false }
         do {
             try MailboxCache(indexURL: fileURL).save(value)
+            savedDraft = value.draft
             storageError = nil
             return true
         } catch {
             storageError = "Could not save changes on this iPhone. " + error.localizedDescription
             return false
         }
+    }
+
+    func scheduleDraftSave() {
+        pendingDraftSave?.cancel()
+        pendingDraftSave = Task {
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            flushDraft()
+        }
+    }
+
+    @discardableResult
+    func flushDraft() -> Bool {
+        pendingDraftSave?.cancel()
+        pendingDraftSave = nil
+        guard !loadFailed else { return false }
+        if savedDraft == nil || storageError != nil { return save() }
+        guard savedDraft != snapshot.draft else { return true }
+        do {
+            try MailboxCache(indexURL: fileURL).saveDraft(snapshot.draft)
+            savedDraft = snapshot.draft
+            return true
+        } catch {
+            storageError = "Could not save the draft on this iPhone. " + error.localizedDescription
+            return false
+        }
+    }
+
+    func discardDraft() -> Bool {
+        let owner = account(snapshot.draft.accountID) ?? snapshot.accounts.first
+        var next = snapshot
+        next.draft = MailDraft(accountID: owner?.id ?? "", from: owner?.address ?? "")
+        return commit(next)
     }
 
     private func commit(_ value: MailSnapshot) -> Bool {
@@ -221,11 +265,7 @@ extension MailStore {
         }
         let domain = d.from.split(separator: "@").last?.lowercased()
         let sentTo = Set(snapshot.messages.filter { $0.accountID == sender.id && $0.folder == .sent }.flatMap { mail -> [String] in
-            if let addresses = mail.sentRecipients { return addresses.map { $0.lowercased() } }
-            // Older demo messages recorded recipients in their first line.
-            let header = mail.body.prefix { !$0.isNewline }
-            guard header.hasPrefix("To: ") else { return [] }
-            return header.dropFirst(4).split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces).lowercased() }
+            (mail.outboundRecipients ?? []).map { $0.lowercased() }
         })
         let outside = d.recipients.filter { recipient in
             recipient.split(separator: "@").last?.lowercased() != domain &&
@@ -269,8 +309,21 @@ extension MailStore {
         _ = commit(next)
     }
 
+    func refreshSamples(_ ids: [String]) async {
+        await withTaskGroup(of: Void.self) { group in
+            var remaining = ids.makeIterator()
+            for _ in 0..<min(4, ids.count) {
+                if let id = remaining.next() { group.addTask { await self.refreshSample(id) } }
+            }
+            while await group.next() != nil {
+                guard !Task.isCancelled, let id = remaining.next() else { break }
+                group.addTask { await self.refreshSample(id) }
+            }
+        }
+    }
+
     func refreshSample(_ id: String, signedInSampleID: String? = nil) async {
-        guard let index = snapshot.accounts.firstIndex(where: { $0.id == id }),
+        guard !Task.isCancelled, let index = snapshot.accounts.firstIndex(where: { $0.id == id }),
               checking.insert(id).inserted else { return }
         defer { checking.remove(id) }
         var start = snapshot

@@ -13,10 +13,7 @@ struct MessageView: View {
     private func reply(_ mail: MailMessage, all: Bool) {
         guard let account = store.account(mail.accountID) else { return }
         if store.snapshot.draft.isEmpty {
-            let addresses = [mail.replyTo ?? mail.senderAddress] + (all ? mail.copiedRecipients ?? [] : [])
-            let from = account.sendingAddresses.first { $0 == mail.receivedAs }
-                ?? (mail.receivedAs == nil && account.aliases.isEmpty ? account.address : "")
-            store.snapshot.draft = MailDraft(accountID: account.id, from: from, recipient: addresses.joined(separator: ", "), subject: mail.subject.lowercased().hasPrefix("re:") ? mail.subject : "Re: " + mail.subject, originalAccount: account.id, replyAll: all)
+            store.snapshot.draft = mail.replyDraft(account: account, all: all)
             store.save()
         }
         composeOpen = true
@@ -80,7 +77,7 @@ struct MessageView: View {
                         Spacer()
                         Menu("Reply", systemImage: "arrowshape.turn.up.left") {
                             Button(store.snapshot.draft.isEmpty ? "Reply" : "Resume existing draft") { reply(mail, all: false) }
-                            if store.snapshot.draft.isEmpty && !(mail.copiedRecipients ?? []).isEmpty {
+                            if store.snapshot.draft.isEmpty && mail.replyAddresses(all: true) != mail.replyAddresses(all: false) {
                                 Button("Reply All") { reply(mail, all: true) }
                             }
                         }

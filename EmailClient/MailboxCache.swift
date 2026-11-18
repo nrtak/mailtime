@@ -12,6 +12,7 @@ struct MailboxCache {
         var layout: Int
         var settings: MailSnapshot
         var files: [String: String]
+        var draft: MailDraft?
     }
     private struct PackedMessage: Codable {
         let pack: UUID
@@ -39,7 +40,7 @@ struct MailboxCache {
         }
         let index = try decoder.decode(Index.self, from: data)
         var result = index.settings
-        guard index.layout == 2, result.messages.isEmpty, result.draft.isEmpty, Set(result.accounts.map(\.id)).count == result.accounts.count, Set(index.files.keys) == Set(result.accounts.map(\.id)) else { throw CocoaError(.coderReadCorrupt) }
+        guard [2, 3].contains(index.layout), result.messages.isEmpty, result.draft.isEmpty, Set(result.accounts.map(\.id)).count == result.accounts.count, Set(index.files.keys) == Set(result.accounts.map(\.id)) else { throw CocoaError(.coderReadCorrupt) }
         var copies: [UUID: [PackedMessage]] = [:]
         for acct in result.accounts {
             guard let name = index.files[acct.id],
@@ -53,6 +54,10 @@ struct MailboxCache {
             result.messages += part.messages
             if let draft = part.draft { result.draft = draft }
             for copy in part.copies { copies[copy.pack, default: []].append(copy) }
+        }
+        if let draft = index.draft {
+            guard draft.isEmpty || index.files[draft.accountID] != nil else { throw CocoaError(.coderReadCorrupt) }
+            result.draft = draft
         }
         result.packs = try result.packs?.map { head in
             var pack = head
@@ -89,17 +94,27 @@ struct MailboxCache {
         var files: [String: String] = [:]
         for acct in value.accounts {
             let part = AccountFile(owner: acct.id, messages: byAccount[acct.id] ?? [],
-                copies: copies[acct.id] ?? [], draft: value.draft.accountID == acct.id ? value.draft : nil)
+                copies: copies[acct.id] ?? [], draft: nil)
             let bytes = try encoder.encode(part)
             let name = filename(bytes)
             let url = directory.appendingPathComponent(name)
             if !fs.fileExists(atPath: url.path) { try bytes.write(to: url, options: [.atomic, .completeFileProtection]) }
             files[acct.id] = name
         }
-        let index = Index(layout: 2, settings: metadata, files: files)
+        let index = Index(layout: 3, settings: metadata, files: files, draft: value.draft)
         try encoder.encode(index).write(to: indexURL, options: [.atomic, .completeFileProtection])
         // Cleanup after commit may be retried on the next save or launch.
         try? cleanUnreferenced(keeping: Set(files.values))
+    }
+
+    func saveDraft(_ draft: MailDraft) throws {
+        var index = try JSONDecoder().decode(Index.self, from: Data(contentsOf: indexURL))
+        guard [2, 3].contains(index.layout), draft.isEmpty || index.files[draft.accountID] != nil else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        index.layout = 3
+        index.draft = draft
+        try JSONEncoder().encode(index).write(to: indexURL, options: [.atomic, .completeFileProtection])
     }
 
     func clean() throws {

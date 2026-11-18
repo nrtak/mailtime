@@ -86,7 +86,7 @@ struct InboxView: View {
             .listStyle(.plain)
             .refreshable {
                 let ids = scoped.map(\.id)
-                for id in ids { await store.refreshSample(id) }
+                await store.refreshSamples(ids)
             }
             .navigationTitle(folder == .inbox ? "Inbox" : folder == .sent ? "Demo Sent" : folder.title)
             .navigationDestination(for: String.self) { MessageView(messageID: $0) }

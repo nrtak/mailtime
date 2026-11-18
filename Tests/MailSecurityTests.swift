@@ -66,6 +66,7 @@ final class MailSecurityTests: XCTestCase {
         try FileManager.default.createDirectory(at: index, withIntermediateDirectories: false)
         let sent = store.snapshot.messages.filter { $0.folder == .sent }.count
         XCTAssertFalse(store.sendDemo())
+        XCTAssertFalse(store.discardDraft())
         XCTAssertEqual(store.snapshot.draft.body, "Original draft")
         XCTAssertEqual(store.snapshot.messages.filter { $0.folder == .sent }.count, sent)
     }
@@ -96,5 +97,65 @@ final class MailSecurityTests: XCTestCase {
                 XCTAssertNotEqual(contents["owner"] as? String, "base")
             }
         }
+    }
+
+    @MainActor func testReplyToSentMailKeepsAliasAndOriginalRecipients() throws {
+        let store = MailStore(directory: try temporaryDirectory())
+        let owner = try XCTUnwrap(store.account("base"))
+        let alias = try XCTUnwrap(owner.aliases.first)
+        var mail = MailMessage(accountID: owner.id, senderName: owner.name, senderAddress: alias,
+                               subject: "Schedule", body: "To: a@example.com, b@example.com\n\nHello",
+                               folder: .sent, copiedRecipients: ["B@example.com", "c@example.com"])
+        XCTAssertEqual(mail.replyDraft(account: owner, all: false).recipient, "a@example.com")
+        mail.sentRecipients = ["a@example.com", "b@example.com"]
+        mail.folder = .archive
+        let reply = mail.replyDraft(account: owner, all: true)
+        XCTAssertEqual(reply.recipient, "a@example.com, b@example.com, c@example.com")
+        XCTAssertEqual(reply.from, alias)
+    }
+
+    @MainActor func testMailboxRetryRestoresSavedDraft() throws {
+        let directory = try temporaryDirectory()
+        let index = directory.appendingPathComponent("mailbox.json")
+        let initial = MailStore(directory: directory)
+        initial.snapshot.draft.body = "Saved before restart"
+        XCTAssertTrue(initial.save())
+        let valid = try Data(contentsOf: index)
+        try Data("incomplete".utf8).write(to: index)
+        let store = MailStore(directory: directory)
+        XCTAssertTrue(store.loadFailed)
+        XCTAssertFalse(store.save())
+        try valid.write(to: index)
+        store.loadMailbox()
+        XCTAssertFalse(store.loadFailed)
+        XCTAssertNil(store.storageError)
+        XCTAssertEqual(store.snapshot.draft.body, "Saved before restart")
+    }
+
+    @MainActor func testDraftFlushAndDiscardSurviveRelaunch() throws {
+        let directory = try temporaryDirectory()
+        let store = MailStore(directory: directory)
+        let owner = try XCTUnwrap(store.account("base"))
+        store.snapshot.draft = MailDraft(accountID: owner.id, from: owner.address, body: "First")
+        XCTAssertTrue(store.save())
+        let accountFiles = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        store.snapshot.draft.body = "Second"
+        store.scheduleDraftSave()
+        XCTAssertTrue(store.flushDraft())
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted(), accountFiles)
+        XCTAssertEqual(MailStore(directory: directory).snapshot.draft.body, "Second")
+        XCTAssertTrue(store.discardDraft())
+        let restored = MailStore(directory: directory).snapshot.draft
+        XCTAssertTrue(restored.isEmpty)
+        XCTAssertEqual(restored.accountID, owner.id)
+        XCTAssertEqual(restored.from, owner.address)
+    }
+
+    @MainActor func testBulkRefreshChecksEachRequestedAccount() async throws {
+        let store = MailStore(directory: try temporaryDirectory())
+        let ids = store.snapshot.accounts.map(\.id)
+        await store.refreshSamples(ids)
+        XCTAssertTrue(store.checking.isEmpty)
+        XCTAssertTrue(store.snapshot.accounts.allSatisfy { $0.lastAttempt != nil })
     }
 }

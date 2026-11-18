@@ -68,7 +68,33 @@ struct MailMessage: Codable, Identifiable, Hashable {
     var junkReason: String? = nil
 }
 
-struct MailDraft: Codable {
+extension MailMessage {
+    var outboundRecipients: [String]? {
+        if let sentRecipients { return sentRecipients }
+        guard folder == .sent else { return nil }
+        let header = body.prefix { !$0.isNewline }
+        guard header.hasPrefix("To: ") else { return [] }
+        return header.dropFirst(4).split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    func replyAddresses(all: Bool) -> [String] {
+        let direct = outboundRecipients ?? [replyTo ?? senderAddress]
+        let addresses = all ? direct + (copiedRecipients ?? []) : Array(direct.prefix(1))
+        var seen = Set<String>()
+        return addresses.filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+    }
+
+    func replyDraft(account: MailAccount, all: Bool) -> MailDraft {
+        let identity = outboundRecipients == nil ? receivedAs : senderAddress
+        let from = account.sendingAddresses.first { $0.lowercased() == identity?.lowercased() }
+            ?? (identity == nil && account.aliases.isEmpty ? account.address : "")
+        return MailDraft(accountID: account.id, from: from, recipient: replyAddresses(all: all).joined(separator: ", "),
+                         subject: subject.lowercased().hasPrefix("re:") ? subject : "Re: " + subject,
+                         originalAccount: account.id, replyAll: all)
+    }
+}
+
+struct MailDraft: Codable, Equatable {
     var accountID: String = "personal"
     var from: String = "alex@example.com"
     var recipient: String = ""

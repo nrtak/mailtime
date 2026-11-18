@@ -146,7 +146,26 @@ jobs:
             security import "$signing_dir/distribution.p12" -P "$IOS_DISTRIBUTION_P12_PASSWORD" -T /usr/bin/codesign -k "$keychain" >/dev/null
             unset IOS_DISTRIBUTION_P12_PASSWORD
             security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
-            archive_signing=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Distribution" "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_UUID")
+            security find-identity -v -p codesigning "$keychain" > "$signing_dir/identities.txt"
+            SIGNING_CERTIFICATE=$(python3 - "$signing_dir/profile.plist" "$signing_dir/identities.txt" <<'PY'
+          import hashlib, plistlib, re, sys
+          from pathlib import Path
+
+          profile = plistlib.loads(Path(sys.argv[1]).read_bytes())
+          identities = Path(sys.argv[2]).read_text()
+          available = set(re.findall(r'^\s*\d+\) ([A-Fa-f0-9]{40}) "', identities, re.MULTILINE))
+          fingerprints = {fingerprint.upper() for fingerprint in available}
+          for certificate in profile.get("DeveloperCertificates", []):
+              fingerprint = hashlib.sha1(certificate).hexdigest().upper()
+              if fingerprint in fingerprints:
+                  print(fingerprint)
+                  break
+          else:
+              sys.exit("The installed signing identity must match a distribution certificate in the Kira Mail profile.")
+          PY
+            )
+            export SIGNING_CERTIFICATE
+            archive_signing=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=$SIGNING_CERTIFICATE" "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_UUID")
           fi
           archive="$RUNNER_TEMP/EmailClient.xcarchive"
           xcodebuild archive -project EmailClient.xcodeproj -scheme EmailClient -configuration Release \
@@ -161,7 +180,7 @@ jobs:
                          "teamID": os.environ["TEAM_ID"], "signingStyle": "automatic",
                          "manageAppVersionAndBuildNumber": False}
               if os.environ["PROFILE_UUID"]:
-                  options.update(signingStyle="manual", signingCertificate="Apple Distribution",
+                  options.update(signingStyle="manual", signingCertificate=os.environ["SIGNING_CERTIFICATE"],
                                  provisioningProfiles={"com.zenmail.emailclient": os.environ["PROFILE_UUID"]})
               plistlib.dump(options, out)
           PY

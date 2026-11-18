@@ -127,9 +127,12 @@ jobs:
               sys.exit("Kira Mail requires an App Store Connect distribution profile.")
           if profile["ExpirationDate"] <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
               sys.exit("The Kira Mail distribution profile has expired.")
-          print(str(uuid.UUID(profile["UUID"])).upper())
+          uuid.UUID(profile["UUID"])
+          print(profile["UUID"])
           PY
             )
+            PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$signing_dir/profile.plist")
+            export PROFILE_NAME
             profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
             mkdir -p "$profiles"
             if [[ ! -f "$profiles/$PROFILE_UUID.mobileprovision" ]]; then
@@ -165,7 +168,7 @@ jobs:
           PY
             )
             export SIGNING_CERTIFICATE
-            archive_signing=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=$SIGNING_CERTIFICATE" "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_UUID")
+            archive_signing=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=$SIGNING_CERTIFICATE" "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME")
           fi
           archive="$RUNNER_TEMP/EmailClient.xcarchive"
           xcodebuild archive -project EmailClient.xcodeproj -scheme EmailClient -configuration Release \
@@ -181,7 +184,7 @@ jobs:
                          "manageAppVersionAndBuildNumber": False}
               if os.environ["PROFILE_UUID"]:
                   options.update(signingStyle="manual", signingCertificate=os.environ["SIGNING_CERTIFICATE"],
-                                 provisioningProfiles={"com.zenmail.emailclient": os.environ["PROFILE_UUID"]})
+                                 provisioningProfiles={"com.zenmail.emailclient": os.environ["PROFILE_NAME"]})
               plistlib.dump(options, out)
           PY
           xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$options" \

@@ -40,6 +40,9 @@ jobs:
           TEAM_ID: ${{ vars.APPLE_TEAM_ID || 'R3233N87DC' }}
           KEY_ID: ${{ secrets.ASC_KEY_ID || secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY || secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
           set -euo pipefail
@@ -47,7 +50,20 @@ jobs:
           : "${KEY_ID:?Missing API key ID}" "${ISSUER_ID:?Missing issuer}" "${ASC_PRIVATE_KEY:?Missing signing API key}"
           umask 077
           signing_dir=$(mktemp -d "$RUNNER_TEMP/asc.XXXXXX")
-          trap 'rm -rf "$signing_dir"' EXIT
+          keychain="$signing_dir/kira.keychain-db"
+          profile_copy=""
+          original_keychains=()
+          cleanup() {
+            if [[ -f "$keychain" ]]; then
+              if (( ${#original_keychains[@]} )); then
+                security list-keychains -d user -s "${original_keychains[@]}" || true
+              fi
+              security delete-keychain "$keychain" || true
+            fi
+            if [[ -n "$profile_copy" ]]; then rm -f "$profile_copy"; fi
+            rm -rf "$signing_dir"
+          }
+          trap cleanup EXIT
           key="$signing_dir/AuthKey.p8"
           python3 - "$key" <<'PY'
           import base64
@@ -89,18 +105,65 @@ jobs:
           fi
           auth=(-allowProvisioningUpdates -authenticationKeyPath "$key"
                 -authenticationKeyID "$KEY_ID" -authenticationKeyIssuerID "$ISSUER_ID")
+          archive_signing=(CODE_SIGNING_ALLOWED=NO)
+          export PROFILE_UUID=""
+          if [[ -n "$IOS_DISTRIBUTION_P12_BASE64$IOS_DISTRIBUTION_P12_PASSWORD$IOS_PROFILE_BASE64" ]]; then
+            : "${IOS_DISTRIBUTION_P12_BASE64:?Missing distribution certificate}" "${IOS_PROFILE_BASE64:?Missing Kira Mail distribution profile}"
+            printf '%s' "$IOS_PROFILE_BASE64" | base64 --decode > "$signing_dir/profile.mobileprovision"
+            printf '%s' "$IOS_DISTRIBUTION_P12_BASE64" | base64 --decode > "$signing_dir/distribution.p12"
+            unset IOS_DISTRIBUTION_P12_BASE64 IOS_PROFILE_BASE64
+            security cms -D -i "$signing_dir/profile.mobileprovision" > "$signing_dir/profile.plist"
+            PROFILE_UUID=$(python3 - "$signing_dir/profile.plist" <<'PY'
+          import datetime, os, plistlib, sys, uuid
+          with open(sys.argv[1], "rb") as source:
+              profile = plistlib.load(source)
+          entitlements = profile["Entitlements"]
+          if os.environ["TEAM_ID"] not in profile["TeamIdentifier"] or not any(
+              entitlements.get("application-identifier") == prefix + ".com.zenmail.emailclient"
+              for prefix in profile["ApplicationIdentifierPrefix"]
+          ):
+              sys.exit("The profile must belong to this team and the Kira Mail bundle ID.")
+          if entitlements.get("get-task-allow") or "ProvisionedDevices" in profile or profile.get("ProvisionsAllDevices"):
+              sys.exit("Kira Mail requires an App Store Connect distribution profile.")
+          if profile["ExpirationDate"] <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
+              sys.exit("The Kira Mail distribution profile has expired.")
+          print(str(uuid.UUID(profile["UUID"])).upper())
+          PY
+            )
+            profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+            mkdir -p "$profiles"
+            if [[ ! -f "$profiles/$PROFILE_UUID.mobileprovision" ]]; then
+              profile_copy="$profiles/$PROFILE_UUID.mobileprovision"
+              cp "$signing_dir/profile.mobileprovision" "$profile_copy"
+            fi
+            while IFS= read -r item; do
+              original_keychains+=("$item")
+            done < <(security list-keychains -d user | sed -E 's/^[[:space:]]*"//; s/"$//')
+            keychain_password=$(uuidgen)
+            security create-keychain -p "$keychain_password" "$keychain"
+            security unlock-keychain -p "$keychain_password" "$keychain"
+            security list-keychains -d user -s "$keychain" "${original_keychains[@]}"
+            security import "$signing_dir/distribution.p12" -P "$IOS_DISTRIBUTION_P12_PASSWORD" -T /usr/bin/codesign -k "$keychain" >/dev/null
+            unset IOS_DISTRIBUTION_P12_PASSWORD
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" >/dev/null
+            archive_signing=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Distribution" "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_UUID")
+          fi
           archive="$RUNNER_TEMP/EmailClient.xcarchive"
           xcodebuild archive -project EmailClient.xcodeproj -scheme EmailClient -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath "$archive" CODE_SIGNING_ALLOWED=NO \
+            -destination 'generic/platform=iOS' -archivePath "$archive" "${archive_signing[@]}" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
           options="$signing_dir/export.plist"
           python3 - "$options" <<'PY'
           import os, plistlib, sys
           with open(sys.argv[1], "wb") as out:
-              plistlib.dump({"method": "app-store-connect", "destination": "upload",
-                             "teamID": os.environ["TEAM_ID"], "signingStyle": "automatic",
-                             "manageAppVersionAndBuildNumber": False}, out)
+              options = {"method": "app-store-connect", "destination": "upload",
+                         "teamID": os.environ["TEAM_ID"], "signingStyle": "automatic",
+                         "manageAppVersionAndBuildNumber": False}
+              if os.environ["PROFILE_UUID"]:
+                  options.update(signingStyle="manual", signingCertificate="Apple Distribution",
+                                 provisioningProfiles={"com.zenmail.emailclient": os.environ["PROFILE_UUID"]})
+              plistlib.dump(options, out)
           PY
           xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$options" \
             -exportPath "$RUNNER_TEMP/export" "${auth[@]}"

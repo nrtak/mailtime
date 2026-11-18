@@ -174,13 +174,13 @@ struct SyncAccountRow: View {
     }
 }
 
-struct CoverageView: View {
+struct SyncStatusView: View {
     @EnvironmentObject private var store: MailStore
     let ids: [String]
     var body: some View {
         List {
             Section {
-                Text("Sample timestamps. A mailbox becomes stale one hour after its last successful check. Local search includes downloaded mail.")
+                Text("These sample accounts need attention or haven’t completed a check in the past hour.")
             }
             ForEach(store.snapshot.accounts.filter { ids.contains($0.id) }) { account in
                 VStack(alignment: .leading, spacing: 6) {
@@ -189,7 +189,7 @@ struct CoverageView: View {
                     Text("Last attempt: \(account.lastAttempt?.formatted() ?? "Unknown")")
                 }.font(.caption)
             }
-        }.navigationTitle("Mailbox coverage")
+        }.navigationTitle("Sync status")
     }
 }
 

@@ -7,6 +7,7 @@ struct InboxView: View {
     @State private var group: String?
     @State private var priority = true
     @State private var query = ""
+    @State private var statusTime = Date()
     @State private var accountsOpen = false
     @State private var settingsOpen = false
     @State private var composeOpen = false
@@ -38,20 +39,16 @@ struct InboxView: View {
                     if let error = store.storageError {
                         Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.red)
                     }
-                    NavigationLink {
-                        CoverageView(ids: scoped.map(\.id))
-                    } label: {
-                        TimelineView(.periodic(from: .now, by: 60)) { tick in
-                            let current = scoped.filter { $0.sampleStatus(at: tick.date) == "Current" }.count
-                            VStack(alignment: .leading) {
-                                Text("Sample mailbox coverage")
-                                Text("\(current) current · \(attention.count) need attention · \(scoped.count - current - attention.count) stale").font(.caption)
-                            }
+                    let stale = scoped.filter { $0.issue == nil && $0.sampleStatus(at: statusTime) != "Current" }
+                    if !attention.isEmpty || !stale.isEmpty {
+                        NavigationLink {
+                            SyncStatusView(ids: (attention + stale).map(\.id))
+                        } label: {
+                            Label(attention.isEmpty ? "Mail hasn’t been checked recently" :
+                                  attention.count == 1 ? "Sync needs attention" : "Sync needs attention in \(attention.count) accounts",
+                                  systemImage: "exclamationmark.triangle")
+                                .font(.subheadline)
                         }
-                    }
-                    ForEach(attention) { account in
-                        SyncAccountRow(account: account)
-                            .padding(.vertical, 4).listRowBackground(Color.orange.opacity(0.10))
                     }
                     if folder == .inbox {
                         Picker("Inbox", selection: $priority) {
@@ -84,6 +81,7 @@ struct InboxView: View {
                 }
             }
             .listStyle(.plain)
+            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { statusTime = $0 }
             .refreshable {
                 let ids = scoped.map(\.id)
                 await store.refreshSamples(ids)

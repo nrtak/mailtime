@@ -1,0 +1,66 @@
+// !$*UTF8*$!
+{
+archiveVersion = 1;
+classes = {};
+objectVersion = 56;
+objects = {
+000000000000000000000081 = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+0000000000000000000000E1 = {isa = PBXBuildFile; fileRef = 000000000000000000000081; };
+000000000000000000000080 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MailAppLock.swift"; sourceTree = "<group>"; };
+0000000000000000000000E0 = {isa = PBXBuildFile; fileRef = 000000000000000000000080; };
+000000000000000000000402 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = EmailClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+000000000000000000000404 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailSecurityTests.swift; sourceTree = "<group>"; };
+000000000000000000000403 = {isa = PBXGroup; children = (000000000000000000000404); path = Tests; sourceTree = "<group>"; };
+000000000000000000000405 = {isa = PBXBuildFile; fileRef = 000000000000000000000404; };
+000000000000000000000406 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (000000000000000000000405); runOnlyForDeploymentPostprocessing = 0; };
+000000000000000000000407 = {isa = XCConfigurationList; buildConfigurations = (000000000000000000000408, 000000000000000000000409); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+000000000000000000000408 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {GENERATE_INFOPLIST_FILE = YES; CODE_SIGN_STYLE = Automatic; PRODUCT_BUNDLE_IDENTIFIER = com.zenmail.emailclient.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 1; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EmailClient.app/EmailClient"; BUNDLE_LOADER = "$(TEST_HOST)"; }; };
+000000000000000000000409 = {isa = XCBuildConfiguration; name = Release; buildSettings = {GENERATE_INFOPLIST_FILE = YES; CODE_SIGN_STYLE = Automatic; PRODUCT_BUNDLE_IDENTIFIER = com.zenmail.emailclient.tests; PRODUCT_NAME = "$(TARGET_NAME)"; TARGETED_DEVICE_FAMILY = 1; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/EmailClient.app/EmailClient"; BUNDLE_LOADER = "$(TEST_HOST)"; }; };
+00000000000000000000040B = {isa = PBXContainerItemProxy; containerPortal = 000000000000000000000001; proxyType = 1; remoteGlobalIDString = 000000000000000000000002; remoteInfo = EmailClient; };
+00000000000000000000040A = {isa = PBXTargetDependency; target = 000000000000000000000002; targetProxy = 00000000000000000000040B; };
+000000000000000000000401 = {isa = PBXNativeTarget; buildConfigurationList = 000000000000000000000407; buildPhases = (000000000000000000000406); buildRules = (); dependencies = (00000000000000000000040A); name = EmailClientTests; productName = EmailClientTests; productReference = 000000000000000000000402; productType = "com.apple.product-type.bundle.unit-test"; };
+
+00000000000000000000006D = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MailboxCache.swift"; sourceTree = "<group>"; };
+0000000000000000000000D1 = {isa = PBXBuildFile; fileRef = 00000000000000000000006D; };
+00000000000000000000006E = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MicrosoftIdentity.swift"; sourceTree = "<group>"; };
+0000000000000000000000D2 = {isa = PBXBuildFile; fileRef = 00000000000000000000006E; };
+00000000000000000000006F = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MailServerCheck.swift"; sourceTree = "<group>"; };
+0000000000000000000000D3 = {isa = PBXBuildFile; fileRef = 00000000000000000000006F; };
+000000000000000000000070 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info.plist"; sourceTree = "<group>"; };
+000000000000000000000064 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AccountsView.swift"; sourceTree = "<group>"; };
+0000000000000000000000C8 = {isa = PBXBuildFile; fileRef = 000000000000000000000064; };
+000000000000000000000065 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComposeView.swift"; sourceTree = "<group>"; };
+0000000000000000000000C9 = {isa = PBXBuildFile; fileRef = 000000000000000000000065; };
+000000000000000000000066 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "EmailClientApp.swift"; sourceTree = "<group>"; };
+0000000000000000000000CA = {isa = PBXBuildFile; fileRef = 000000000000000000000066; };
+000000000000000000000067 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "InboxView.swift"; sourceTree = "<group>"; };
+0000000000000000000000CB = {isa = PBXBuildFile; fileRef = 000000000000000000000067; };
+000000000000000000000068 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MailStore.swift"; sourceTree = "<group>"; };
+0000000000000000000000CC = {isa = PBXBuildFile; fileRef = 000000000000000000000068; };
+000000000000000000000069 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MessageView.swift"; sourceTree = "<group>"; };
+0000000000000000000000CD = {isa = PBXBuildFile; fileRef = 000000000000000000000069; };
+00000000000000000000006A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Models.swift"; sourceTree = "<group>"; };
+0000000000000000000000CE = {isa = PBXBuildFile; fileRef = 00000000000000000000006A; };
+00000000000000000000006B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SettingsView.swift"; sourceTree = "<group>"; };
+0000000000000000000000CF = {isa = PBXBuildFile; fileRef = 00000000000000000000006B; };
+00000000000000000000006C = {isa = PBXFileReference; lastKnownFileType = text.xml; path = "PrivacyInfo.xcprivacy"; sourceTree = "<group>"; };
+0000000000000000000000D0 = {isa = PBXBuildFile; fileRef = 00000000000000000000006C; };
+000000000000000000000006 = {isa = PBXFileReference; explicitFileType = wrapper.application; path = EmailClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
+000000000000000000000003 = {isa = PBXGroup; children = (000000000000000000000004, 000000000000000000000403, 000000000000000000000005); sourceTree = "<group>"; };
+000000000000000000000004 = {isa = PBXGroup; children = (000000000000000000000064, 000000000000000000000065, 000000000000000000000066, 000000000000000000000067, 000000000000000000000068, 000000000000000000000069, 00000000000000000000006A, 00000000000000000000006B, 00000000000000000000006C, 00000000000000000000006D, 00000000000000000000006E, 00000000000000000000006F, 000000000000000000000070, 000000000000000000000080, 000000000000000000000081); path = EmailClient; sourceTree = "<group>"; };
+000000000000000000000005 = {isa = PBXGroup; children = (000000000000000000000006, 000000000000000000000402); name = Products; sourceTree = "<group>"; };
+000000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (0000000000000000000000C8, 0000000000000000000000C9, 0000000000000000000000CA, 0000000000000000000000CB, 0000000000000000000000CC, 0000000000000000000000CD, 0000000000000000000000CE, 0000000000000000000000CF, 0000000000000000000000D1, 0000000000000000000000D2, 0000000000000000000000D3, 0000000000000000000000E0); runOnlyForDeploymentPostprocessing = 0; };
+000000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (0000000000000000000000D0, 0000000000000000000000E1); runOnlyForDeploymentPostprocessing = 0; };
+000000000000000000000009 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+000000000000000000000010 = {isa = PBXShellScriptBuildPhase; alwaysOutOfDate = 1; buildActionMask = 2147483647; files = (); inputPaths = (); name = "Verify iOS SDK"; outputPaths = (); runOnlyForDeploymentPostprocessing = 0; shellPath = /bin/sh; shellScript = "case \"$SDK_NAME\" in\n  iphoneos*) version=${SDK_NAME#iphoneos} ;;\n  iphonesimulator*) version=${SDK_NAME#iphonesimulator} ;;\n  *) version= ;;\nesac\nmajor=${version%%.*}\ncase \"$major\" in\n  ''|*[!0-9]*) major=0 ;;\nesac\nif [ \"$major\" -ne 27 ]; then\n  echo \"error: EmailClient requires an iOS 27.x SDK. Selected SDK: $SDK_NAME\" >&2\n  exit 1\nfi\n"; };
+000000000000000000000002 = {isa = PBXNativeTarget; buildConfigurationList = 00000000000000000000000B; buildPhases = (000000000000000000000010, 000000000000000000000007, 000000000000000000000009, 000000000000000000000008); buildRules = (); dependencies = (); name = EmailClient; productName = EmailClient; productReference = 000000000000000000000006; productType = "com.apple.product-type.application"; };
+000000000000000000000001 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; TargetAttributes = {000000000000000000000002 = {CreatedOnToolsVersion = 26.0; }; }; }; buildConfigurationList = 00000000000000000000000A; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = 000000000000000000000003; productRefGroup = 000000000000000000000005; projectDirPath = ""; projectRoot = ""; targets = (000000000000000000000002, 000000000000000000000401); };
+00000000000000000000000C = {isa = XCBuildConfiguration; name = Debug; buildSettings = {CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 27.0; SWIFT_VERSION = 5.0; ENABLE_TESTABILITY = YES; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; }; };
+00000000000000000000000D = {isa = XCBuildConfiguration; name = Release; buildSettings = {CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 27.0; SWIFT_VERSION = 5.0; SWIFT_COMPILATION_MODE = wholemodule; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; }; };
+00000000000000000000000E = {isa = XCBuildConfiguration; name = Debug; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = EmailClient/Info.plist; MAIL_MICROSOFT_CLIENT_ID = ""; INFOPLIST_KEY_CFBundleDisplayName = Zenmail; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.zenmail.emailclient; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; TARGETED_DEVICE_FAMILY = 1; ENABLE_USER_SCRIPT_SANDBOXING = YES; }; };
+00000000000000000000000F = {isa = XCBuildConfiguration; name = Release; buildSettings = {CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = EmailClient/Info.plist; MAIL_MICROSOFT_CLIENT_ID = ""; INFOPLIST_KEY_CFBundleDisplayName = Zenmail; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait; MARKETING_VERSION = 0.1.0; PRODUCT_BUNDLE_IDENTIFIER = com.zenmail.emailclient; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; TARGETED_DEVICE_FAMILY = 1; ENABLE_USER_SCRIPT_SANDBOXING = YES; }; };
+00000000000000000000000A = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000C, 00000000000000000000000D); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+00000000000000000000000B = {isa = XCConfigurationList; buildConfigurations = (00000000000000000000000E, 00000000000000000000000F); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+};
+rootObject = 000000000000000000000001;
+}

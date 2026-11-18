@@ -1,5 +1,8 @@
 name: TestFlight
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
 permissions:
   contents: read
 concurrency:
@@ -8,7 +11,7 @@ concurrency:
 
 jobs:
   upload:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[testflight] '))
     runs-on: xcode-27
     timeout-minutes: 50
     steps:
@@ -34,10 +37,10 @@ jobs:
       - name: Sign and upload to App Store Connect
         shell: bash
         env:
-          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-          KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID || 'R3233N87DC' }}
+          KEY_ID: ${{ secrets.ASC_KEY_ID || secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_ISSUER_ID || secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY || secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           : "${TEAM_ID:?Missing Apple team ID}"

@@ -27,7 +27,7 @@ struct SettingsView: View {
                     NavigationLink {
                         Form {
                             Picker("Appearance", selection: $store.snapshot.preferences.appearance) { ForEach(["System", "Light", "Dark"], id: \.self) { Text($0).tag($0) } }
-                            Text("Native controls support Dynamic Type and the iOS Reduce Motion setting. Set a local reminder from a message in your action queue. New-mail alerts require a connected provider.").font(.caption).foregroundStyle(.secondary)
+                            Text("Native controls support Dynamic Type and the iOS Reduce Motion setting. Set a local reminder from a message in your follow-ups. New-mail alerts require a connected provider.").font(.caption).foregroundStyle(.secondary)
                         }.navigationTitle("Appearance & alerts")
                     } label: { Label("Appearance & alerts", systemImage: "paintpalette") }
                     NavigationLink { SecurityView() } label: { Label("Security & privacy", systemImage: "lock.shield") }

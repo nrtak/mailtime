@@ -8,44 +8,68 @@ struct AccountsView: View {
     @Binding var group: String?
     @State private var newGroup = ""
     @State private var query = ""
+    @State private var collapsedGroups = Set<String>()
 
     var body: some View {
         NavigationStack {
             List {
-                Section {
+                Section("Mailboxes") {
                     Button { accountID = nil; group = nil; folder = .inbox; dismiss() } label: { Label("All accounts", systemImage: "tray.full") }
                     ForEach(MailFolder.allCases) { item in
                         Button { folder = item; dismiss() } label: { Label(item == .sent ? "Demo Sent" : item.title, systemImage: item.symbol) }
                     }
                 }
-                Section("On this device") {
-                    NavigationLink("Action queue") { ActionQueueView() }
-                    NavigationLink("Offline mail packs") { OfflinePacksView() }
-                    NavigationLink("Inspect link or QR code") { LinkInspector(initial: "") }
-                }
-                ForEach(store.snapshot.groups, id: \.self) { title in
-                    Section {
-                        Button("View this group") { group = title; accountID = nil; folder = .inbox; dismiss() }
-                        ForEach(store.snapshot.accounts.filter { $0.group == title && (query.isEmpty || ($0.name + $0.address).localizedCaseInsensitiveContains(query)) }) { account in
-                            HStack {
-                                Button {
-                                    accountID = account.id; group = nil; folder = .inbox; dismiss()
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(account.name).font(.body.weight(.medium))
-                                        Text(account.address).font(.caption).foregroundStyle(.secondary)
-                                        if account.needsAttention { Label("Demo sync paused", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
-                                    }.foregroundStyle(.primary)
+                Section {
+                    ForEach(store.snapshot.groups, id: \.self) { title in
+                        let members = store.snapshot.accounts.filter { $0.group == title }
+                        let matches = members.filter { query.isEmpty || ($0.name + " " + $0.address).localizedCaseInsensitiveContains(query) }
+                        if query.isEmpty || !matches.isEmpty {
+                            DisclosureGroup(isExpanded: Binding(
+                                get: { !query.isEmpty || !collapsedGroups.contains(title) },
+                                set: { expanded in
+                                    if expanded { collapsedGroups.remove(title) } else { collapsedGroups.insert(title) }
                                 }
-                                Spacer()
-                                NavigationLink { AccountEditor(account: account) } label: { Image(systemName: "slider.horizontal.3") }.frame(width: 40).accessibilityLabel("Edit \(account.name)")
+                            )) {
+                                Button("View this group") { group = title; accountID = nil; folder = .inbox; dismiss() }
+                                ForEach(matches) { account in
+                                    HStack {
+                                        Button {
+                                            accountID = account.id; group = nil; folder = .inbox; dismiss()
+                                        } label: {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(account.name).font(.body.weight(.medium))
+                                                Text(account.address).font(.caption).foregroundStyle(.secondary)
+                                                if account.needsAttention { Label("Demo sync paused", systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
+                                            }.foregroundStyle(.primary)
+                                        }
+                                        Spacer()
+                                        NavigationLink { AccountEditor(account: account) } label: { Image(systemName: "slider.horizontal.3") }.frame(width: 40).accessibilityLabel("Edit \(account.name)")
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Label(title, systemImage: "folder").font(.headline)
+                                    Spacer()
+                                    Text(members.count.formatted()).font(.subheadline).foregroundStyle(.secondary)
+                                        .accessibilityLabel("\(members.count) accounts")
+                                }
                             }
                         }
-                    } header: { Text(title) }
+                    }
+                } header: {
+                    Text("Account groups")
+                        .font(.title2.bold())
+                        .textCase(nil)
+                        .foregroundStyle(.primary)
+                        .accessibilityAddTraits(.isHeader)
                 }
                 Section("New group") {
                     TextField("Group name", text: $newGroup)
                     Button("Add group") { store.addGroup(newGroup); newGroup = "" }.disabled(newGroup.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                Section("Mail tools") {
+                    NavigationLink("Follow-ups") { ActionQueueView() }
+                    NavigationLink("Offline copies") { OfflinePacksView() }
                 }
                 Section { Text("These mailboxes use sample messages. The optional Outlook.com identity check is in Settings under Accounts & groups.").font(.caption).foregroundStyle(.secondary) }
             }
@@ -188,7 +212,7 @@ struct ActionQueueView: View {
                     }
                 }
             }
-        }.navigationTitle("Action queue")
+        }.navigationTitle("Follow-ups")
     }
 }
 
@@ -243,7 +267,7 @@ struct OfflinePacksView: View {
                     store.snapshot.packs?.remove(atOffsets: offsets); store.save()
                 }
             }
-        }.navigationTitle("Offline mail packs")
+        }.navigationTitle("Offline copies")
             .onChange(of: accountID) { _, _ in selected.removeAll() }
             .onChange(of: folder) { _, _ in selected.removeAll() }
     }

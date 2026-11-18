@@ -1,8 +1,5 @@
 import SwiftUI
 import UserNotifications
-import PhotosUI
-import Vision
-import ImageIO
 
 struct MessageView: View {
     @EnvironmentObject private var store: MailStore
@@ -50,7 +47,6 @@ struct MessageView: View {
                         if let file = store.readableAttachment(for: mail) {
                             DisclosureGroup(file.name) { Text(verbatim: file.text) }
                         }
-                        NavigationLink("Inspect a link or QR code") { LinkInspector(initial: mail.body) }
                         if let reason = mail.junkReason, mail.folder == .junk {
                             VStack(alignment: .leading, spacing: 10) {
                                 Label("Why this is in Junk", systemImage: "exclamationmark.shield").font(.headline)
@@ -100,7 +96,7 @@ struct MessageActions: View {
     private var reminderID: String { "mail-action-" + mail.id }
 
     var body: some View {
-        DisclosureGroup(mail.action ?? "Add to action queue") {
+        DisclosureGroup(mail.action ?? "Add follow-up") {
             Picker("Action", selection: Binding(get: { mail.action ?? "None" }, set: { status in
                 if status == "Done" || status == "None" { cancelReminder() }
                 store.update(mail.id) { $0.action = status == "None" ? nil : status }
@@ -140,7 +136,7 @@ struct MessageActions: View {
             guard target > Date() else { feedback = "Choose a future time."; return }
             let content = UNMutableNotificationContent()
             content.title = "Mail reminder"
-            content.body = "Review your action queue."
+            content.body = "Review your follow-ups."
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, target.timeIntervalSinceNow), repeats: false)
             try await center.add(UNNotificationRequest(identifier: reminderID, content: content, trigger: trigger))
             guard store.message(mail.id)?.accountID == mail.accountID else {
@@ -151,72 +147,5 @@ struct MessageActions: View {
             store.update(mail.id) { $0.reminder = target }
             feedback = "Reminder scheduled."
         } catch { feedback = error.localizedDescription }
-    }
-}
-
-struct LinkInspector: View {
-    let initial: String
-    @State private var input = ""
-    @State private var photo: PhotosPickerItem?
-    @State private var feedback = ""
-
-    private var destinations: [URL] {
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return [] }
-        var seen = Set<String>()
-        return detector.matches(in: input, range: NSRange(input.startIndex..., in: input)).compactMap { match in
-            guard let range = Range(match.range, in: input) else { return nil }
-            let literal = String(input[range])
-            guard literal.lowercased().hasPrefix("https://") || literal.lowercased().hasPrefix("http://"),
-                  let url = URL(string: literal), url.host != nil, seen.insert(url.absoluteString).inserted else { return nil }
-            return url
-        }
-    }
-
-    var body: some View {
-        Form {
-            Section("Inspect on this iPhone") {
-                TextField("Paste a web address or text", text: $input, axis: .vertical)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                PhotosPicker("Choose QR image", selection: $photo, matching: .images)
-                if !feedback.isEmpty { Text(feedback).font(.caption) }
-            }
-            Section {
-                if destinations.isEmpty { Text("No explicit HTTP or HTTPS address found.") }
-                ForEach(destinations, id: \.absoluteString) { url in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(verbatim: url.host(percentEncoded: true) ?? "").bold()
-                        Text(verbatim: url.absoluteString).font(.caption).textSelection(.enabled)
-                        if url.user != nil || url.password != nil { Text("This address contains sign-in information before the host.") }
-                        if url.scheme?.lowercased() == "http" { Text("Unencrypted HTTP address") }
-                    }
-                }
-            } header: { Text("Destinations") } footer: { Text("Inspection reads the address locally. A shortened link or a redirect may lead to another site.") }
-        }.navigationTitle("Link inspector")
-            .onAppear { if input.isEmpty { input = initial } }
-            .task(id: photo) {
-                guard let photo else { return }
-                do {
-                    guard let data = try await photo.loadTransferable(type: Data.self), data.count <= 24 * 1024 * 1024 else {
-                        feedback = "Choose a smaller image."; return
-                    }
-                    let values = try await Self.decodeQR(data)
-                    try Task.checkCancellation()
-                    input = values.joined(separator: "\n")
-                    feedback = values.isEmpty ? "No QR code found." : "Decoded on this device."
-                } catch { if !Task.isCancelled { feedback = "Could not read that image." } }
-            }
-    }
-
-    nonisolated private static func decodeQR(_ data: Data) async throws -> [String] {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 2048
-              ] as CFDictionary) else { return [] }
-        let request = VNDetectBarcodesRequest()
-        request.symbologies = [.qr]
-        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
-        return request.results?.compactMap(\.payloadStringValue) ?? []
     }
 }
